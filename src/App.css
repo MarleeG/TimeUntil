@@ -54,6 +54,7 @@ body {
   display: grid;
   gap: 0.35rem;
   margin-bottom: 0.7rem;
+  min-width: 0;
   font-size: 0.92rem;
   color: #47526a;
 }
@@ -74,6 +75,12 @@ body {
   border-color: #2f6fed;
   outline: 2px solid rgba(47, 111, 237, 0.2);
   outline-offset: 1px;
+}
+
+.field input[type='date'],
+.field input[type='time'] {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .primary-button,
@@ -620,5 +627,13 @@ body {
 
   .card-actions {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 599px) {
+  .field input[type='date'],
+  .field input[type='time'] {
+    width: 100%;
+    font-size: 16px;
   }
 }
