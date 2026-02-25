@@ -50,6 +50,35 @@ body {
   gap: 0.65rem;
 }
 
+.create-mode-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin-bottom: 0.8rem;
+}
+
+.mode-button {
+  min-height: 2.35rem;
+  border-radius: 10px;
+  border: 1px solid #c5d2e6;
+  background: #f4f7fc;
+  color: #334463;
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+.mode-button:hover {
+  background: #e8effa;
+}
+
+.mode-button-active {
+  border-color: #2f6fed;
+  background: #e8f0ff;
+  color: #14387c;
+}
+
 .field {
   display: grid;
   gap: 0.35rem;
@@ -120,6 +149,43 @@ body {
   width: 100%;
   background: #f2f6ff;
   color: #1e3870;
+}
+
+.primary-button:disabled,
+.secondary-button:disabled,
+.mode-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.duration-block {
+  margin-bottom: 0.65rem;
+}
+
+.duration-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.duration-grid .field {
+  margin-bottom: 0;
+}
+
+.duration-preview-line {
+  margin: 0.7rem 0 0;
+  font-size: 0.9rem;
+  color: #354464;
+}
+
+.duration-preview-sub {
+  margin: 0.2rem 0 0;
+  font-size: 0.84rem;
+  color: #5c6881;
+}
+
+.create-form-error {
+  margin-top: 0.45rem;
 }
 
 .timers-group {
@@ -633,6 +699,7 @@ body {
 .card-actions button:focus-visible,
 .primary-button:focus-visible,
 .secondary-button:focus-visible,
+.mode-button:focus-visible,
 .alerts-section button:focus-visible,
 .sound-controls select:focus-visible,
 .sound-controls button:focus-visible,
@@ -646,6 +713,10 @@ body {
 @media (min-width: 600px) {
   .create-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .duration-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .card-actions {
