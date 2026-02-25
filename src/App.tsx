@@ -57,6 +57,22 @@ type TimerDraft = {
   time: string
 }
 
+type CreateMode = 'endAt' | 'duration'
+
+type DurationFields = {
+  days: string
+  hours: string
+  minutes: string
+  seconds: string
+}
+
+type DurationParts = {
+  days: number
+  hours: number
+  minutes: number
+  seconds: number
+}
+
 type ToastMessage = {
   id: string
   message: string
@@ -188,6 +204,18 @@ function computeTarget(dateStr: string, timeStr: string, now: Date): Date {
   return tomorrow
 }
 
+function clampInt(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) {
+    return min
+  }
+
+  return Math.min(max, Math.max(min, Math.trunc(value)))
+}
+
+function durationToMs({ days, hours, minutes, seconds }: DurationParts): number {
+  return (((days * 24 + hours) * 60 + minutes) * 60 + seconds) * 1000
+}
+
 function formatHMS(ms: number): string {
   const clamped = Math.max(0, ms)
   const totalSeconds = Math.floor(clamped / 1000)
@@ -224,6 +252,19 @@ function formatDuration(ms: number): string {
   }
 
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+}
+
+function formatDurationPreview(ms: number): string {
+  const clamped = Math.max(0, ms)
+  const totalSeconds = Math.floor(clamped / 1000)
+  const days = Math.floor(totalSeconds / 86_400)
+  const dayRemainderMs = (totalSeconds % 86_400) * 1000
+
+  if (days <= 0) {
+    return formatHMS(clamped)
+  }
+
+  return `${days} day${days === 1 ? '' : 's'}, ${formatHMS(dayRemainderMs)}`
 }
 
 function formatMinutesValue(minutes: number): string {
@@ -558,8 +599,15 @@ function App() {
   const persistedSettings = useMemo(() => readPersistedSettings(), [])
 
   const [createLabel, setCreateLabel] = useState('')
+  const [createMode, setCreateMode] = useState<CreateMode>('endAt')
   const [createDate, setCreateDate] = useState(defaults.dateStr)
   const [createTime, setCreateTime] = useState(defaults.timeStr)
+  const [createDuration, setCreateDuration] = useState<DurationFields>({
+    days: '',
+    hours: '',
+    minutes: '',
+    seconds: '',
+  })
   const [timers, setTimers] = useState<Timer[]>(() => getInitialPersistedState().timers)
   const [completedTimers, setCompletedTimers] = useState<CompletedTimer[]>(
     () => getInitialPersistedState().completedTimers,
@@ -587,6 +635,31 @@ function App() {
   })
   const hasUserInteractedRef = useRef(false)
   const audioContextRef = useRef<AudioContext | null>(null)
+
+  const createDurationParts = useMemo<DurationParts>(() => {
+    const parsePart = (raw: string, max: number): number => {
+      if (!raw.trim()) {
+        return 0
+      }
+
+      return clampInt(Number.parseInt(raw, 10), 0, max)
+    }
+
+    return {
+      days: parsePart(createDuration.days, 9_999),
+      hours: parsePart(createDuration.hours, 23),
+      minutes: parsePart(createDuration.minutes, 59),
+      seconds: parsePart(createDuration.seconds, 59),
+    }
+  }, [createDuration.days, createDuration.hours, createDuration.minutes, createDuration.seconds])
+
+  const createDurationMs = useMemo(
+    () => durationToMs(createDurationParts),
+    [createDurationParts],
+  )
+  const createDurationEndsAt = createDurationMs > 0 ? now + createDurationMs : null
+  const isCreateDisabled =
+    createMode === 'duration' ? createDurationMs <= 0 : !createDate || !createTime
 
   const pushToast = (message: string) => {
     const toastId = createId()
@@ -846,24 +919,53 @@ function App() {
     }
   }, [isClearCompletedModalOpen])
 
-  const handleCreateTimer = (event: FormEvent) => {
-    event.preventDefault()
-    markUserInteracted()
-
-    if (!createDate || !createTime) {
+  const handleCreateDurationInput = (field: keyof DurationFields, rawValue: string) => {
+    const digitsOnly = rawValue.replace(/[^\d]/g, '')
+    if (digitsOnly === '') {
+      setCreateDuration((previous) => ({
+        ...previous,
+        [field]: '',
+      }))
       return
     }
 
-    const now = new Date()
-    const target = computeTarget(createDate, createTime, now)
+    const max = field === 'days' ? 9_999 : field === 'hours' ? 23 : 59
+    const clamped = clampInt(Number.parseInt(digitsOnly, 10), 0, max)
+    setCreateDuration((previous) => ({
+      ...previous,
+      [field]: String(clamped),
+    }))
+  }
+
+  const handleCreateTimer = (event: FormEvent) => {
+    event.preventDefault()
+
+    const nowMs = Date.now()
+    let targetAt: number
+
+    if (createMode === 'duration') {
+      if (createDurationMs <= 0) {
+        return
+      }
+
+      targetAt = nowMs + createDurationMs
+    } else {
+      if (!createDate || !createTime) {
+        return
+      }
+
+      targetAt = computeTarget(createDate, createTime, new Date(nowMs)).getTime()
+    }
+
+    markUserInteracted()
     const label = createLabel.trim()
 
     const timer: Timer = {
       id: createId(),
       label: label || undefined,
-      targetAt: target.getTime(),
-      createdAt: now.getTime(),
-      startedAt: now.getTime(),
+      targetAt,
+      createdAt: nowMs,
+      startedAt: nowMs,
       endedAt: undefined,
       isRunning: true,
       pausedRemainingMs: undefined,
@@ -1242,6 +1344,25 @@ function App() {
         <h1 className="title">Time Until</h1>
 
         <form className="create-form" onSubmit={handleCreateTimer}>
+          <div className="create-mode-toggle" role="group" aria-label="Timer mode">
+            <button
+              type="button"
+              className={`mode-button ${createMode === 'endAt' ? 'mode-button-active' : ''}`}
+              onClick={() => setCreateMode('endAt')}
+              aria-pressed={createMode === 'endAt'}
+            >
+              End at (Date/Time)
+            </button>
+            <button
+              type="button"
+              className={`mode-button ${createMode === 'duration' ? 'mode-button-active' : ''}`}
+              onClick={() => setCreateMode('duration')}
+              aria-pressed={createMode === 'duration'}
+            >
+              Duration (D/H/M/S)
+            </button>
+          </div>
+
           <label className="field" htmlFor="new-label">
             <span>Label (optional)</span>
             <input
@@ -1253,31 +1374,116 @@ function App() {
             />
           </label>
 
-          <div className="create-row">
-            <label className="field" htmlFor="new-date">
-              <span>Date</span>
-              <input
-                id="new-date"
-                type="date"
-                value={createDate}
-                onChange={(event) => setCreateDate(event.target.value)}
-                required
-              />
-            </label>
+          {createMode === 'endAt' ? (
+            <div className="create-row">
+              <label className="field" htmlFor="new-date">
+                <span>Date</span>
+                <input
+                  id="new-date"
+                  type="date"
+                  value={createDate}
+                  onChange={(event) => setCreateDate(event.target.value)}
+                  required
+                />
+              </label>
 
-            <label className="field" htmlFor="new-time">
-              <span>Time</span>
-              <input
-                id="new-time"
-                type="time"
-                value={createTime}
-                onChange={(event) => setCreateTime(event.target.value)}
-                required
-              />
-            </label>
-          </div>
+              <label className="field" htmlFor="new-time">
+                <span>Time</span>
+                <input
+                  id="new-time"
+                  type="time"
+                  value={createTime}
+                  onChange={(event) => setCreateTime(event.target.value)}
+                  required
+                />
+              </label>
+            </div>
+          ) : (
+            <div className="duration-block">
+              <div className="duration-grid">
+                <label className="field" htmlFor="new-duration-days">
+                  <span>Days</span>
+                  <input
+                    id="new-duration-days"
+                    type="number"
+                    inputMode="numeric"
+                    min="0"
+                    step="1"
+                    value={createDuration.days}
+                    onChange={(event) =>
+                      handleCreateDurationInput('days', event.target.value)
+                    }
+                    placeholder="0"
+                  />
+                </label>
 
-          <button className="primary-button" type="submit">
+                <label className="field" htmlFor="new-duration-hours">
+                  <span>Hours</span>
+                  <input
+                    id="new-duration-hours"
+                    type="number"
+                    inputMode="numeric"
+                    min="0"
+                    max="23"
+                    step="1"
+                    value={createDuration.hours}
+                    onChange={(event) =>
+                      handleCreateDurationInput('hours', event.target.value)
+                    }
+                    placeholder="0"
+                  />
+                </label>
+
+                <label className="field" htmlFor="new-duration-minutes">
+                  <span>Minutes</span>
+                  <input
+                    id="new-duration-minutes"
+                    type="number"
+                    inputMode="numeric"
+                    min="0"
+                    max="59"
+                    step="1"
+                    value={createDuration.minutes}
+                    onChange={(event) =>
+                      handleCreateDurationInput('minutes', event.target.value)
+                    }
+                    placeholder="0"
+                  />
+                </label>
+
+                <label className="field" htmlFor="new-duration-seconds">
+                  <span>Seconds</span>
+                  <input
+                    id="new-duration-seconds"
+                    type="number"
+                    inputMode="numeric"
+                    min="0"
+                    max="59"
+                    step="1"
+                    value={createDuration.seconds}
+                    onChange={(event) =>
+                      handleCreateDurationInput('seconds', event.target.value)
+                    }
+                    placeholder="0"
+                  />
+                </label>
+              </div>
+
+              <p className="duration-preview-line">
+                Ends at: {createDurationEndsAt ? formatDateTime(createDurationEndsAt) : '—'}
+              </p>
+              <p className="duration-preview-sub">
+                In: {createDurationMs > 0 ? formatDurationPreview(createDurationMs) : '—'}
+              </p>
+              {createDurationMs <= 0 ? (
+                <p className="inline-error create-form-error">
+                  Duration must be greater than 0.
+                </p>
+              ) : null}
+            </div>
+          )}
+
+          <button className="primary-button" type="submit" disabled={isCreateDisabled}>
             Create Timer
           </button>
         </form>
