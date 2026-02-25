@@ -253,6 +253,12 @@ body {
   flex: 1;
 }
 
+.timer-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
 .icon-button {
   width: 2.05rem;
   height: 2.05rem;
@@ -274,6 +280,11 @@ body {
 
 .icon-button:hover {
   background: #e7eefb;
+}
+
+.icon-button-active {
+  background: #dfe9fc;
+  border-color: #98b2e5;
 }
 
 .label-edit-inline {
@@ -323,6 +334,10 @@ body {
   text-align: center;
   color: #0d1528;
   font-weight: 700;
+}
+
+.timer-settings-panel {
+  margin-bottom: 0.75rem;
 }
 
 .alerts-section {

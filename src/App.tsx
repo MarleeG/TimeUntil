@@ -567,6 +567,7 @@ function App() {
   const [editingById, setEditingById] = useState<Record<string, TimerDraft>>({})
   const [editingTimerId, setEditingTimerId] = useState<string | null>(null)
   const [draftLabel, setDraftLabel] = useState('')
+  const [settingsOpenById, setSettingsOpenById] = useState<Record<string, boolean>>({})
   const [isClearCompletedModalOpen, setIsClearCompletedModalOpen] = useState(false)
   const [alertInputById, setAlertInputById] = useState<Record<string, string>>({})
   const [alertErrorById, setAlertErrorById] = useState<Record<string, string>>({})
@@ -965,6 +966,16 @@ function App() {
   const handleDeleteTimer = (timerId: string) => {
     setTimers((previous) => previous.filter((timer) => timer.id !== timerId))
 
+    setSettingsOpenById((previous) => {
+      if (!(timerId in previous)) {
+        return previous
+      }
+
+      const next = { ...previous }
+      delete next[timerId]
+      return next
+    })
+
     setEditingById((previous) => {
       if (!previous[timerId]) {
         return previous
@@ -991,6 +1002,13 @@ function App() {
       setEditingTimerId(null)
       setDraftLabel('')
     }
+  }
+
+  const handleToggleTimerSettings = (timerId: string) => {
+    setSettingsOpenById((previous) => ({
+      ...previous,
+      [timerId]: !previous[timerId],
+    }))
   }
 
   const handleStartLabelEdit = (timer: Timer) => {
@@ -1308,6 +1326,7 @@ function App() {
             timers.map((timer) => {
               const isTargetEditing = Boolean(editingById[timer.id])
               const isLabelEditing = editingTimerId === timer.id
+              const isTimerSettingsOpen = settingsOpenById[timer.id] === true
               const draft = editingById[timer.id]
               const remainingMs = isTargetEditing ? 0 : getRemainingMs(timer, now)
               const alertInput = alertInputById[timer.id] ?? ''
@@ -1365,31 +1384,58 @@ function App() {
                       ) : (
                         <>
                           <h2>{timer.label || 'Untitled'}</h2>
-                          <button
-                            type="button"
-                            className="icon-button"
-                            onClick={() => handleStartLabelEdit(timer)}
-                            aria-label="Edit label"
-                          >
-                            <svg viewBox="0 0 24 24" aria-hidden="true">
-                              <path
-                                d="M3 17.25V21h3.75L18.8 8.95l-3.75-3.75L3 17.25z"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              />
-                              <path
-                                d="M14.9 5.2l3.75 3.75"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              />
-                            </svg>
-                          </button>
+                          <div className="timer-header-actions">
+                            <button
+                              type="button"
+                              className="icon-button"
+                              onClick={() => handleStartLabelEdit(timer)}
+                              aria-label="Edit label"
+                            >
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path
+                                  d="M3 17.25V21h3.75L18.8 8.95l-3.75-3.75L3 17.25z"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                                <path
+                                  d="M14.9 5.2l3.75 3.75"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                              </svg>
+                            </button>
+                            <button
+                              type="button"
+                              className={`icon-button ${isTimerSettingsOpen ? 'icon-button-active' : ''}`}
+                              onClick={() => handleToggleTimerSettings(timer.id)}
+                              aria-label={isTimerSettingsOpen ? 'Hide timer settings' : 'Show timer settings'}
+                              aria-expanded={isTimerSettingsOpen}
+                              aria-controls={`timer-settings-${timer.id}`}
+                            >
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path
+                                  d="M12 8.5a3.5 3.5 0 100 7 3.5 3.5 0 000-7z"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                />
+                                <path
+                                  d="M19.4 15a1.7 1.7 0 00.34 1.86l.02.02a2 2 0 11-2.83 2.83l-.02-.02A1.7 1.7 0 0015 19.4a1.7 1.7 0 00-1 .6 1.7 1.7 0 01-2 0 1.7 1.7 0 00-1-.6 1.7 1.7 0 00-1.86.34l-.02.02a2 2 0 11-2.83-2.83l.02-.02A1.7 1.7 0 004.6 15a1.7 1.7 0 00-.6-1 1.7 1.7 0 010-2 1.7 1.7 0 00.6-1 1.7 1.7 0 00-.34-1.86l-.02-.02a2 2 0 112.83-2.83l.02.02A1.7 1.7 0 009 4.6a1.7 1.7 0 001-.6 1.7 1.7 0 012 0 1.7 1.7 0 001 .6 1.7 1.7 0 001.86-.34l.02-.02a2 2 0 112.83 2.83l-.02.02A1.7 1.7 0 0019.4 9c.24.3.45.64.6 1a1.7 1.7 0 011 1 1.7 1.7 0 010 2 1.7 1.7 0 01-1 1c-.15.36-.36.7-.6 1z"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="1.8"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                              </svg>
+                            </button>
+                          </div>
                         </>
                       )}
                     </div>
@@ -1452,111 +1498,115 @@ function App() {
 
                   <p className="timer-display">{formatHMS(remainingMs)}</p>
 
-                  <section className="alerts-section">
-                    <h3>Alerts</h3>
+                  {isTimerSettingsOpen ? (
+                    <div className="timer-settings-panel" id={`timer-settings-${timer.id}`}>
+                      <section className="alerts-section">
+                        <h3>Alerts</h3>
 
-                    <div className="preset-row">
-                      {[1, 5, 10, 15].map((preset) => (
-                        <button
-                          key={preset}
-                          type="button"
-                          onClick={() => handleAddAlert(timer.id, preset)}
-                          disabled={isTargetEditing}
-                        >
-                          {preset}m
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className="custom-alert-row">
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.1"
-                        placeholder="Custom minutes"
-                        value={alertInput}
-                        onChange={(event) =>
-                          setAlertInputById((previous) => ({
-                            ...previous,
-                            [timer.id]: event.target.value,
-                          }))
-                        }
-                        disabled={isTargetEditing}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => handleCustomAlertAdd(timer.id)}
-                        disabled={isTargetEditing}
-                      >
-                        Add
-                      </button>
-                    </div>
-
-                    {alertError ? <p className="inline-error">{alertError}</p> : null}
-
-                    {timer.alerts.length === 0 ? (
-                      <p className="alerts-empty">No alerts yet.</p>
-                    ) : (
-                      <ul className="alerts-list">
-                        {timer.alerts.map((alert) => (
-                          <li key={alert.id}>
-                            <span>{formatMinutesValue(alert.minutesBeforeEnd)}m before</span>
-                            <button type="button" onClick={() => handleRemoveAlert(timer.id, alert.id)}>
-                              Remove
+                        <div className="preset-row">
+                          {[1, 5, 10, 15].map((preset) => (
+                            <button
+                              key={preset}
+                              type="button"
+                              onClick={() => handleAddAlert(timer.id, preset)}
+                              disabled={isTargetEditing}
+                            >
+                              {preset}m
                             </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </section>
-
-                  <section className="sounds-section">
-                    <h3>Sounds</h3>
-
-                    <div className="sound-row">
-                      <label htmlFor={`alert-sound-${timer.id}`}>Alert sound</label>
-                      <div className="sound-controls">
-                        <select
-                          id={`alert-sound-${timer.id}`}
-                          value={timer.alertSoundId}
-                          onChange={(event) =>
-                            handleTimerSoundChange(timer.id, 'alertSoundId', event.target.value as SoundId)
-                          }
-                        >
-                          {SOUND_OPTIONS.map((option) => (
-                            <option key={option.id} value={option.id}>
-                              {option.label}
-                            </option>
                           ))}
-                        </select>
-                        <button type="button" onClick={() => handleTestSound(timer.alertSoundId)}>
-                          Test sound
-                        </button>
-                      </div>
-                    </div>
+                        </div>
 
-                    <div className="sound-row">
-                      <label htmlFor={`end-sound-${timer.id}`}>End sound</label>
-                      <div className="sound-controls">
-                        <select
-                          id={`end-sound-${timer.id}`}
-                          value={timer.endSoundId}
-                          onChange={(event) =>
-                            handleTimerSoundChange(timer.id, 'endSoundId', event.target.value as SoundId)
-                          }
-                        >
-                          {SOUND_OPTIONS.map((option) => (
-                            <option key={option.id} value={option.id}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                        <button type="button" onClick={() => handleTestSound(timer.endSoundId)}>
-                          Test sound
-                        </button>
-                      </div>
+                        <div className="custom-alert-row">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.1"
+                            placeholder="Custom minutes"
+                            value={alertInput}
+                            onChange={(event) =>
+                              setAlertInputById((previous) => ({
+                                ...previous,
+                                [timer.id]: event.target.value,
+                              }))
+                            }
+                            disabled={isTargetEditing}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleCustomAlertAdd(timer.id)}
+                            disabled={isTargetEditing}
+                          >
+                            Add
+                          </button>
+                        </div>
+
+                        {alertError ? <p className="inline-error">{alertError}</p> : null}
+
+                        {timer.alerts.length === 0 ? (
+                          <p className="alerts-empty">No alerts yet.</p>
+                        ) : (
+                          <ul className="alerts-list">
+                            {timer.alerts.map((alert) => (
+                              <li key={alert.id}>
+                                <span>{formatMinutesValue(alert.minutesBeforeEnd)}m before</span>
+                                <button type="button" onClick={() => handleRemoveAlert(timer.id, alert.id)}>
+                                  Remove
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </section>
+
+                      <section className="sounds-section">
+                        <h3>Sounds</h3>
+
+                        <div className="sound-row">
+                          <label htmlFor={`alert-sound-${timer.id}`}>Alert sound</label>
+                          <div className="sound-controls">
+                            <select
+                              id={`alert-sound-${timer.id}`}
+                              value={timer.alertSoundId}
+                              onChange={(event) =>
+                                handleTimerSoundChange(timer.id, 'alertSoundId', event.target.value as SoundId)
+                              }
+                            >
+                              {SOUND_OPTIONS.map((option) => (
+                                <option key={option.id} value={option.id}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                            <button type="button" onClick={() => handleTestSound(timer.alertSoundId)}>
+                              Test sound
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="sound-row">
+                          <label htmlFor={`end-sound-${timer.id}`}>End sound</label>
+                          <div className="sound-controls">
+                            <select
+                              id={`end-sound-${timer.id}`}
+                              value={timer.endSoundId}
+                              onChange={(event) =>
+                                handleTimerSoundChange(timer.id, 'endSoundId', event.target.value as SoundId)
+                              }
+                            >
+                              {SOUND_OPTIONS.map((option) => (
+                                <option key={option.id} value={option.id}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                            <button type="button" onClick={() => handleTestSound(timer.endSoundId)}>
+                              Test sound
+                            </button>
+                          </div>
+                        </div>
+                      </section>
                     </div>
-                  </section>
+                  ) : null}
 
                   <div className="card-actions">
                     <button
