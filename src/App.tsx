@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
 import './App.css'
+import TutorialOverlay from './TutorialOverlay'
+import { tutorialSteps, type TutorialStep, type TutorialTargetId } from './tutorialSteps'
 
 const TIMERS_STORAGE_KEY = 'timeUntilTimers'
 const COMPLETED_TIMERS_STORAGE_KEY = 'timeUntilCompletedTimers'
 const SETTINGS_STORAGE_KEY = 'timeUntilSettings'
+const TUTORIAL_SEEN_STORAGE_KEY = 'timeUntil_tutorialSeen'
+const TUTORIAL_ALWAYS_SHOW_STORAGE_KEY = 'timeUntil_tutorialAlwaysShow'
 const MAX_ALERTS_PER_TIMER = 5
 
 const SOUND_OPTIONS = [
@@ -594,6 +598,29 @@ function readPersistedSettings(): AppSettings {
   }
 }
 
+function readBooleanStorageFlag(key: string, fallback = false): boolean {
+  try {
+    const value = window.localStorage.getItem(key)
+    if (value === 'true') {
+      return true
+    }
+    if (value === 'false') {
+      return false
+    }
+    return fallback
+  } catch {
+    return fallback
+  }
+}
+
+function writeBooleanStorageFlag(key: string, value: boolean): void {
+  try {
+    window.localStorage.setItem(key, value ? 'true' : 'false')
+  } catch {
+    // Ignore storage write errors.
+  }
+}
+
 function getEmptyDurationFields(): DurationFields {
   return {
     days: '',
@@ -606,6 +633,14 @@ function getEmptyDurationFields(): DurationFields {
 function App() {
   const defaults = useMemo(() => getDefaultCreateValues(new Date()), [])
   const persistedSettings = useMemo(() => readPersistedSettings(), [])
+  const tutorialSeen = useMemo(
+    () => readBooleanStorageFlag(TUTORIAL_SEEN_STORAGE_KEY, false),
+    [],
+  )
+  const tutorialAlwaysShowInitial = useMemo(
+    () => readBooleanStorageFlag(TUTORIAL_ALWAYS_SHOW_STORAGE_KEY, false),
+    [],
+  )
 
   const [createLabel, setCreateLabel] = useState('')
   const [createMode, setCreateMode] = useState<CreateMode>('endAt')
@@ -622,6 +657,12 @@ function App() {
   const [settingsOpenById, setSettingsOpenById] = useState<Record<string, boolean>>({})
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [isTutorialOpen, setIsTutorialOpen] = useState(
+    () => tutorialAlwaysShowInitial || !tutorialSeen,
+  )
+  const [tutorialStepIndex, setTutorialStepIndex] = useState(0)
+  const [tutorialTargetRect, setTutorialTargetRect] = useState<DOMRect | null>(null)
+  const [tutorialAlwaysShow, setTutorialAlwaysShow] = useState(tutorialAlwaysShowInitial)
   const [isClearCompletedModalOpen, setIsClearCompletedModalOpen] = useState(false)
   const [alertInputById, setAlertInputById] = useState<Record<string, string>>({})
   const [alertErrorById, setAlertErrorById] = useState<Record<string, string>>({})
@@ -641,6 +682,12 @@ function App() {
   })
   const hasUserInteractedRef = useRef(false)
   const audioContextRef = useRef<AudioContext | null>(null)
+  const createButtonRef = useRef<HTMLButtonElement | null>(null)
+  const settingsButtonRef = useRef<HTMLButtonElement | null>(null)
+  const createModeToggleRef = useRef<HTMLDivElement | null>(null)
+  const durationPreviewRef = useRef<HTMLParagraphElement | null>(null)
+  const timerActionsRef = useRef<HTMLDivElement | null>(null)
+  const completedSectionRef = useRef<HTMLElement | null>(null)
 
   const createDurationParts = useMemo<DurationParts>(() => {
     const parsePart = (raw: string, max: number): number => {
@@ -666,6 +713,9 @@ function App() {
   const createDurationEndsAt = createDurationMs > 0 ? now + createDurationMs : null
   const isCreateDisabled =
     createMode === 'duration' ? createDurationMs <= 0 : !createDate || !createTime
+  const activeTutorialStep: TutorialStep | null = isTutorialOpen
+    ? tutorialSteps[tutorialStepIndex] ?? null
+    : null
 
   const resetCreateForm = () => {
     const nextDefaults = getDefaultCreateValues(new Date())
@@ -674,6 +724,29 @@ function App() {
     setCreateDate(nextDefaults.dateStr)
     setCreateTime(nextDefaults.timeStr)
     setCreateDuration(getEmptyDurationFields())
+  }
+
+  const getTutorialTargetElement = (target: TutorialTargetId | undefined): HTMLElement | null => {
+    if (!target) {
+      return null
+    }
+
+    switch (target) {
+      case 'createButton':
+        return createButtonRef.current
+      case 'settingsButton':
+        return settingsButtonRef.current
+      case 'createModeToggle':
+        return createModeToggleRef.current
+      case 'durationPreview':
+        return durationPreviewRef.current
+      case 'timerActions':
+        return timerActionsRef.current
+      case 'completedSection':
+        return completedSectionRef.current
+      default:
+        return null
+    }
   }
 
   const pushToast = (message: string) => {
@@ -907,6 +980,97 @@ function App() {
   }, [notificationsEnabled])
 
   useEffect(() => {
+    writeBooleanStorageFlag(TUTORIAL_ALWAYS_SHOW_STORAGE_KEY, tutorialAlwaysShow)
+  }, [tutorialAlwaysShow])
+
+  useEffect(() => {
+    if (!isTutorialOpen || !activeTutorialStep) {
+      return
+    }
+
+    if (activeTutorialStep.requiresCreateModal && !isCreateOpen) {
+      setIsCreateOpen(true)
+    }
+
+    if (!activeTutorialStep.requiresCreateModal && isCreateOpen) {
+      setIsCreateOpen(false)
+    }
+
+    if (activeTutorialStep.requiresDurationMode && createMode !== 'duration') {
+      setCreateMode('duration')
+    }
+
+    if (activeTutorialStep.target === 'settingsButton' && isSettingsOpen) {
+      setIsSettingsOpen(false)
+    }
+  }, [
+    activeTutorialStep,
+    createMode,
+    isCreateOpen,
+    isSettingsOpen,
+    isTutorialOpen,
+  ])
+
+  useEffect(() => {
+    if (!isTutorialOpen || !activeTutorialStep) {
+      setTutorialTargetRect(null)
+      return
+    }
+
+    let frameId = 0
+
+    const updateRect = () => {
+      const targetElement = getTutorialTargetElement(activeTutorialStep.target)
+      if (!targetElement) {
+        setTutorialTargetRect(null)
+        return
+      }
+
+      const rect = targetElement.getBoundingClientRect()
+      setTutorialTargetRect(rect)
+
+      const isInViewport =
+        rect.top >= 0 &&
+        rect.left >= 0 &&
+        rect.bottom <= window.innerHeight &&
+        rect.right <= window.innerWidth
+
+      if (!isInViewport) {
+        targetElement.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center',
+          inline: 'nearest',
+        })
+      }
+    }
+
+    const scheduleUpdate = () => {
+      window.cancelAnimationFrame(frameId)
+      frameId = window.requestAnimationFrame(updateRect)
+    }
+
+    scheduleUpdate()
+    window.addEventListener('resize', scheduleUpdate)
+    window.addEventListener('orientationchange', scheduleUpdate)
+    window.addEventListener('scroll', scheduleUpdate, true)
+
+    return () => {
+      window.cancelAnimationFrame(frameId)
+      window.removeEventListener('resize', scheduleUpdate)
+      window.removeEventListener('orientationchange', scheduleUpdate)
+      window.removeEventListener('scroll', scheduleUpdate, true)
+    }
+  }, [
+    activeTutorialStep,
+    completedTimers.length,
+    createMode,
+    isCreateOpen,
+    isSettingsOpen,
+    isTutorialOpen,
+    timers.length,
+  ])
+
+  useEffect(() => {
     return () => {
       const context = audioContextRef.current
       if (context) {
@@ -918,7 +1082,7 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (!isCreateOpen && !isSettingsOpen && !isClearCompletedModalOpen) {
+    if (!isCreateOpen && !isSettingsOpen && !isTutorialOpen && !isClearCompletedModalOpen) {
       return
     }
 
@@ -933,6 +1097,9 @@ function App() {
       if (isSettingsOpen) {
         setIsSettingsOpen(false)
       }
+      if (isTutorialOpen) {
+        setIsTutorialOpen(false)
+      }
       if (isClearCompletedModalOpen) {
         setIsClearCompletedModalOpen(false)
       }
@@ -942,7 +1109,7 @@ function App() {
     return () => {
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [isClearCompletedModalOpen, isCreateOpen, isSettingsOpen])
+  }, [isClearCompletedModalOpen, isCreateOpen, isSettingsOpen, isTutorialOpen])
 
   useEffect(() => {
     if (!isCreateOpen && !isSettingsOpen && !isClearCompletedModalOpen) {
@@ -1356,6 +1523,52 @@ function App() {
     }
   }
 
+  const openTutorial = () => {
+    setIsSettingsOpen(false)
+    setIsCreateOpen(false)
+    setTutorialStepIndex(0)
+    setIsTutorialOpen(true)
+  }
+
+  const completeTutorial = () => {
+    writeBooleanStorageFlag(TUTORIAL_SEEN_STORAGE_KEY, true)
+    setIsTutorialOpen(false)
+    setTutorialStepIndex(0)
+  }
+
+  const handleSkipTutorial = () => {
+    completeTutorial()
+  }
+
+  const handleDoneTutorial = () => {
+    completeTutorial()
+  }
+
+  const handleBackTutorialStep = () => {
+    setTutorialStepIndex((previous) => Math.max(0, previous - 1))
+  }
+
+  const handleNextTutorialStep = () => {
+    setTutorialStepIndex((previous) => Math.min(tutorialSteps.length - 1, previous + 1))
+  }
+
+  const handleOpenTutorialTarget = () => {
+    if (!activeTutorialStep) {
+      return
+    }
+
+    if (activeTutorialStep.requiresCreateModal) {
+      setIsCreateOpen(true)
+      if (activeTutorialStep.requiresDurationMode) {
+        setCreateMode('duration')
+      }
+    }
+
+    if (activeTutorialStep.target === 'settingsButton') {
+      setIsSettingsOpen(false)
+    }
+  }
+
   const handleDeleteCompletedTimer = (completedTimerId: string) => {
     setCompletedTimers((previous) => previous.filter((timer) => timer.id !== completedTimerId))
   }
@@ -1379,7 +1592,7 @@ function App() {
 
   const createTimerPanel = (
     <form className="create-form create-form-modal" onSubmit={handleCreateTimer}>
-      <div className="create-mode-toggle" role="group" aria-label="Timer mode">
+      <div className="create-mode-toggle" role="group" aria-label="Timer mode" ref={createModeToggleRef}>
         <button
           type="button"
           className={`mode-button ${createMode === 'endAt' ? 'mode-button-active' : ''}`}
@@ -1504,7 +1717,7 @@ function App() {
             </label>
           </div>
 
-          <p className="duration-preview-line">
+          <p className="duration-preview-line" ref={durationPreviewRef}>
             Ends at: {createDurationEndsAt ? formatDateTime(createDurationEndsAt) : '—'}
           </p>
           <p className="duration-preview-sub">
@@ -1550,7 +1763,18 @@ function App() {
             {notificationPermission === 'unsupported' ? 'unsupported' : notificationPermission}
           </strong>
         </p>
+        <button type="button" onClick={openTutorial}>
+          View Tutorial
+        </button>
       </div>
+      <label className="settings-toggle settings-toggle-secondary">
+        <input
+          type="checkbox"
+          checked={tutorialAlwaysShow}
+          onChange={(event) => setTutorialAlwaysShow(event.target.checked)}
+        />
+        <span>Show tutorial on startup</span>
+      </label>
       <p className="settings-disclaimer">
         On iPhone PWAs, background notifications and sounds are not guaranteed. Keep the app open
         for reliable alerts.
@@ -1568,6 +1792,7 @@ function App() {
             className="icon-button header-icon-button"
             onClick={() => setIsSettingsOpen(true)}
             aria-label="Notification settings"
+            ref={settingsButtonRef}
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path
@@ -1596,7 +1821,7 @@ function App() {
           {timers.length === 0 ? (
             <p className="empty-state">No timers yet. Tap + to create one.</p>
           ) : (
-            timers.map((timer) => {
+            timers.map((timer, timerIndex) => {
               const isTargetEditing = Boolean(editingById[timer.id])
               const isLabelEditing = editingTimerId === timer.id
               const isTimerSettingsOpen = settingsOpenById[timer.id] === true
@@ -1881,7 +2106,10 @@ function App() {
                     </div>
                   ) : null}
 
-                  <div className="card-actions">
+                  <div
+                    className="card-actions"
+                    ref={timerIndex === 0 ? timerActionsRef : undefined}
+                  >
                     <button
                       type="button"
                       onClick={() => handleStartTimer(timer.id)}
@@ -1914,7 +2142,7 @@ function App() {
           </div>
         </section>
 
-        <section className="completed-section">
+        <section className="completed-section" ref={completedSectionRef}>
           <div className="list-header">
             <h2>Completed Timers</h2>
             <button
@@ -1975,6 +2203,7 @@ function App() {
         className="fab-create"
         onClick={() => setIsCreateOpen(true)}
         aria-label="Create timer"
+        ref={createButtonRef}
       >
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path
@@ -2054,6 +2283,22 @@ function App() {
             {notificationSettingsPanel}
           </div>
         </div>
+      ) : null}
+
+      {isTutorialOpen && activeTutorialStep ? (
+        <TutorialOverlay
+          isOpen={isTutorialOpen}
+          step={activeTutorialStep}
+          stepIndex={tutorialStepIndex}
+          totalSteps={tutorialSteps.length}
+          targetRect={tutorialTargetRect}
+          showOpenTargetButton={tutorialTargetRect === null && activeTutorialStep.requiresCreateModal === true}
+          onOpenTarget={handleOpenTutorialTarget}
+          onBack={handleBackTutorialStep}
+          onNext={handleNextTutorialStep}
+          onSkip={handleSkipTutorial}
+          onDone={handleDoneTutorial}
+        />
       ) : null}
 
       {isClearCompletedModalOpen ? (
