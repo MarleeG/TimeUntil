@@ -29,12 +29,24 @@ body {
 
 .timers-panel {
   width: min(100%, 720px);
+  padding-bottom: 6.5rem;
 }
 
 .title {
-  margin: 0 0 0.9rem;
-  text-align: center;
+  margin: 0;
   font-size: 1.8rem;
+}
+
+.app-header {
+  margin-bottom: 0.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.header-icon-button {
+  flex: 0 0 auto;
 }
 
 .create-form {
@@ -43,6 +55,13 @@ body {
   border-radius: 16px;
   padding: 1rem;
   box-shadow: 0 12px 30px rgba(17, 36, 64, 0.1);
+}
+
+.create-form-modal {
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
 }
 
 .create-row {
@@ -286,6 +305,14 @@ body {
   padding: 0.55rem 0.6rem;
 }
 
+.settings-card-modal {
+  margin-top: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+}
+
 .empty-state {
   margin: 0;
   text-align: center;
@@ -351,6 +378,32 @@ body {
 .icon-button-active {
   background: #dfe9fc;
   border-color: #98b2e5;
+}
+
+.fab-create {
+  position: fixed;
+  right: 1rem;
+  bottom: max(1rem, env(safe-area-inset-bottom, 0px));
+  width: 3.5rem;
+  height: 3.5rem;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #2f6fed, #1f58ce);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 14px 28px rgba(22, 51, 105, 0.38);
+  z-index: 30;
+}
+
+.fab-create svg {
+  width: 1.45rem;
+  height: 1.45rem;
+}
+
+.fab-create:hover {
+  background: linear-gradient(135deg, #275dc7, #1b4eb7);
 }
 
 .label-edit-inline {
@@ -627,13 +680,30 @@ body {
   box-shadow: 0 18px 40px rgba(11, 20, 37, 0.22);
 }
 
+.modal-card-wide {
+  width: min(100%, 640px);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+
+.modal-close-button {
+  width: 2.15rem;
+  height: 2.15rem;
+}
+
 .modal-card h2 {
   margin: 0;
   font-size: 1.15rem;
   color: #1f2e4a;
 }
 
-.modal-card p {
+.modal-card > p {
   margin: 0.5rem 0 0;
   color: #4e5b75;
   font-size: 0.9rem;
@@ -705,6 +775,7 @@ body {
 .sound-controls button:focus-visible,
 .settings-actions button:focus-visible,
 .icon-button:focus-visible,
+.fab-create:focus-visible,
 .toast button:focus-visible {
   outline: 2px solid rgba(47, 111, 237, 0.35);
   outline-offset: 1px;
@@ -725,6 +796,32 @@ body {
 }
 
 @media (max-width: 599px) {
+  .app-shell {
+    padding: 0.8rem 0.8rem 1rem;
+  }
+
+  .title {
+    font-size: 1.6rem;
+  }
+
+  .modal-overlay {
+    align-items: flex-end;
+    padding: 0.65rem;
+  }
+
+  .modal-card,
+  .modal-card-wide {
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    border-radius: 14px;
+  }
+
+  .fab-create {
+    right: 0.85rem;
+    bottom: max(0.85rem, env(safe-area-inset-bottom, 0px));
+  }
+
   .field input[type='date'],
   .field input[type='time'] {
     width: 100% !important;

@@ -594,6 +594,15 @@ function readPersistedSettings(): AppSettings {
   }
 }
 
+function getEmptyDurationFields(): DurationFields {
+  return {
+    days: '',
+    hours: '',
+    minutes: '',
+    seconds: '',
+  }
+}
+
 function App() {
   const defaults = useMemo(() => getDefaultCreateValues(new Date()), [])
   const persistedSettings = useMemo(() => readPersistedSettings(), [])
@@ -602,12 +611,7 @@ function App() {
   const [createMode, setCreateMode] = useState<CreateMode>('endAt')
   const [createDate, setCreateDate] = useState(defaults.dateStr)
   const [createTime, setCreateTime] = useState(defaults.timeStr)
-  const [createDuration, setCreateDuration] = useState<DurationFields>({
-    days: '',
-    hours: '',
-    minutes: '',
-    seconds: '',
-  })
+  const [createDuration, setCreateDuration] = useState<DurationFields>(getEmptyDurationFields())
   const [timers, setTimers] = useState<Timer[]>(() => getInitialPersistedState().timers)
   const [completedTimers, setCompletedTimers] = useState<CompletedTimer[]>(
     () => getInitialPersistedState().completedTimers,
@@ -616,6 +620,8 @@ function App() {
   const [editingTimerId, setEditingTimerId] = useState<string | null>(null)
   const [draftLabel, setDraftLabel] = useState('')
   const [settingsOpenById, setSettingsOpenById] = useState<Record<string, boolean>>({})
+  const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isClearCompletedModalOpen, setIsClearCompletedModalOpen] = useState(false)
   const [alertInputById, setAlertInputById] = useState<Record<string, string>>({})
   const [alertErrorById, setAlertErrorById] = useState<Record<string, string>>({})
@@ -660,6 +666,15 @@ function App() {
   const createDurationEndsAt = createDurationMs > 0 ? now + createDurationMs : null
   const isCreateDisabled =
     createMode === 'duration' ? createDurationMs <= 0 : !createDate || !createTime
+
+  const resetCreateForm = () => {
+    const nextDefaults = getDefaultCreateValues(new Date())
+    setCreateLabel('')
+    setCreateMode('endAt')
+    setCreateDate(nextDefaults.dateStr)
+    setCreateTime(nextDefaults.timeStr)
+    setCreateDuration(getEmptyDurationFields())
+  }
 
   const pushToast = (message: string) => {
     const toastId = createId()
@@ -903,12 +918,22 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (!isClearCompletedModalOpen) {
+    if (!isCreateOpen && !isSettingsOpen && !isClearCompletedModalOpen) {
       return
     }
 
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (event.key !== 'Escape') {
+        return
+      }
+
+      if (isCreateOpen) {
+        setIsCreateOpen(false)
+      }
+      if (isSettingsOpen) {
+        setIsSettingsOpen(false)
+      }
+      if (isClearCompletedModalOpen) {
         setIsClearCompletedModalOpen(false)
       }
     }
@@ -917,7 +942,20 @@ function App() {
     return () => {
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [isClearCompletedModalOpen])
+  }, [isClearCompletedModalOpen, isCreateOpen, isSettingsOpen])
+
+  useEffect(() => {
+    if (!isCreateOpen && !isSettingsOpen && !isClearCompletedModalOpen) {
+      return
+    }
+
+    const { overflow } = document.body.style
+    document.body.style.overflow = 'hidden'
+
+    return () => {
+      document.body.style.overflow = overflow
+    }
+  }, [isClearCompletedModalOpen, isCreateOpen, isSettingsOpen])
 
   const handleCreateDurationInput = (field: keyof DurationFields, rawValue: string) => {
     const digitsOnly = rawValue.replace(/[^\d]/g, '')
@@ -975,7 +1013,8 @@ function App() {
     }
 
     setTimers((previous) => [timer, ...previous])
-    setCreateLabel('')
+    setIsCreateOpen(false)
+    resetCreateForm()
   }
 
   const handleStartTimer = (timerId: string) => {
@@ -1338,188 +1377,216 @@ function App() {
     setIsClearCompletedModalOpen(false)
   }
 
+  const createTimerPanel = (
+    <form className="create-form create-form-modal" onSubmit={handleCreateTimer}>
+      <div className="create-mode-toggle" role="group" aria-label="Timer mode">
+        <button
+          type="button"
+          className={`mode-button ${createMode === 'endAt' ? 'mode-button-active' : ''}`}
+          onClick={() => setCreateMode('endAt')}
+          aria-pressed={createMode === 'endAt'}
+        >
+          End at (Date/Time)
+        </button>
+        <button
+          type="button"
+          className={`mode-button ${createMode === 'duration' ? 'mode-button-active' : ''}`}
+          onClick={() => setCreateMode('duration')}
+          aria-pressed={createMode === 'duration'}
+        >
+          Duration (D/H/M/S)
+        </button>
+      </div>
+
+      <label className="field" htmlFor="new-label">
+        <span>Label (optional)</span>
+        <input
+          id="new-label"
+          type="text"
+          placeholder="Workout, call, meeting..."
+          value={createLabel}
+          onChange={(event) => setCreateLabel(event.target.value)}
+        />
+      </label>
+
+      {createMode === 'endAt' ? (
+        <div className="create-row">
+          <label className="field" htmlFor="new-date">
+            <span>Date</span>
+            <input
+              id="new-date"
+              type="date"
+              value={createDate}
+              onChange={(event) => setCreateDate(event.target.value)}
+              required
+            />
+          </label>
+
+          <label className="field" htmlFor="new-time">
+            <span>Time</span>
+            <input
+              id="new-time"
+              type="time"
+              value={createTime}
+              onChange={(event) => setCreateTime(event.target.value)}
+              required
+            />
+          </label>
+        </div>
+      ) : (
+        <div className="duration-block">
+          <div className="duration-grid">
+            <label className="field" htmlFor="new-duration-days">
+              <span>Days</span>
+              <input
+                id="new-duration-days"
+                type="number"
+                inputMode="numeric"
+                min="0"
+                step="1"
+                value={createDuration.days}
+                onChange={(event) =>
+                  handleCreateDurationInput('days', event.target.value)
+                }
+                placeholder="0"
+              />
+            </label>
+
+            <label className="field" htmlFor="new-duration-hours">
+              <span>Hours</span>
+              <input
+                id="new-duration-hours"
+                type="number"
+                inputMode="numeric"
+                min="0"
+                max="23"
+                step="1"
+                value={createDuration.hours}
+                onChange={(event) =>
+                  handleCreateDurationInput('hours', event.target.value)
+                }
+                placeholder="0"
+              />
+            </label>
+
+            <label className="field" htmlFor="new-duration-minutes">
+              <span>Minutes</span>
+              <input
+                id="new-duration-minutes"
+                type="number"
+                inputMode="numeric"
+                min="0"
+                max="59"
+                step="1"
+                value={createDuration.minutes}
+                onChange={(event) =>
+                  handleCreateDurationInput('minutes', event.target.value)
+                }
+                placeholder="0"
+              />
+            </label>
+
+            <label className="field" htmlFor="new-duration-seconds">
+              <span>Seconds</span>
+              <input
+                id="new-duration-seconds"
+                type="number"
+                inputMode="numeric"
+                min="0"
+                max="59"
+                step="1"
+                value={createDuration.seconds}
+                onChange={(event) =>
+                  handleCreateDurationInput('seconds', event.target.value)
+                }
+                placeholder="0"
+              />
+            </label>
+          </div>
+
+          <p className="duration-preview-line">
+            Ends at: {createDurationEndsAt ? formatDateTime(createDurationEndsAt) : '—'}
+          </p>
+          <p className="duration-preview-sub">
+            In: {createDurationMs > 0 ? formatDurationPreview(createDurationMs) : '—'}
+          </p>
+          {createDurationMs <= 0 ? (
+            <p className="inline-error create-form-error">
+              Duration must be greater than 0.
+            </p>
+          ) : null}
+        </div>
+      )}
+
+      <button className="primary-button" type="submit" disabled={isCreateDisabled}>
+        Create Timer
+      </button>
+    </form>
+  )
+
+  const notificationSettingsPanel = (
+    <div className="settings-card settings-card-modal">
+      <label className="settings-toggle">
+        <input
+          type="checkbox"
+          checked={notificationsEnabled}
+          onChange={(event) => setNotificationsEnabled(event.target.checked)}
+        />
+        <span>Enable notifications</span>
+      </label>
+      <div className="settings-actions">
+        <button
+          type="button"
+          onClick={() => {
+            void handleRequestNotificationPermission()
+          }}
+          disabled={notificationPermission === 'unsupported'}
+        >
+          Request notification permission
+        </button>
+        <p>
+          Permission:{' '}
+          <strong>
+            {notificationPermission === 'unsupported' ? 'unsupported' : notificationPermission}
+          </strong>
+        </p>
+      </div>
+      <p className="settings-disclaimer">
+        On iPhone PWAs, background notifications and sounds are not guaranteed. Keep the app open
+        for reliable alerts.
+      </p>
+    </div>
+  )
+
   return (
     <div className="app-shell">
       <main className="timers-panel">
-        <h1 className="title">Time Until</h1>
-
-        <form className="create-form" onSubmit={handleCreateTimer}>
-          <div className="create-mode-toggle" role="group" aria-label="Timer mode">
-            <button
-              type="button"
-              className={`mode-button ${createMode === 'endAt' ? 'mode-button-active' : ''}`}
-              onClick={() => setCreateMode('endAt')}
-              aria-pressed={createMode === 'endAt'}
-            >
-              End at (Date/Time)
-            </button>
-            <button
-              type="button"
-              className={`mode-button ${createMode === 'duration' ? 'mode-button-active' : ''}`}
-              onClick={() => setCreateMode('duration')}
-              aria-pressed={createMode === 'duration'}
-            >
-              Duration (D/H/M/S)
-            </button>
-          </div>
-
-          <label className="field" htmlFor="new-label">
-            <span>Label (optional)</span>
-            <input
-              id="new-label"
-              type="text"
-              placeholder="Workout, call, meeting..."
-              value={createLabel}
-              onChange={(event) => setCreateLabel(event.target.value)}
-            />
-          </label>
-
-          {createMode === 'endAt' ? (
-            <div className="create-row">
-              <label className="field" htmlFor="new-date">
-                <span>Date</span>
-                <input
-                  id="new-date"
-                  type="date"
-                  value={createDate}
-                  onChange={(event) => setCreateDate(event.target.value)}
-                  required
-                />
-              </label>
-
-              <label className="field" htmlFor="new-time">
-                <span>Time</span>
-                <input
-                  id="new-time"
-                  type="time"
-                  value={createTime}
-                  onChange={(event) => setCreateTime(event.target.value)}
-                  required
-                />
-              </label>
-            </div>
-          ) : (
-            <div className="duration-block">
-              <div className="duration-grid">
-                <label className="field" htmlFor="new-duration-days">
-                  <span>Days</span>
-                  <input
-                    id="new-duration-days"
-                    type="number"
-                    inputMode="numeric"
-                    min="0"
-                    step="1"
-                    value={createDuration.days}
-                    onChange={(event) =>
-                      handleCreateDurationInput('days', event.target.value)
-                    }
-                    placeholder="0"
-                  />
-                </label>
-
-                <label className="field" htmlFor="new-duration-hours">
-                  <span>Hours</span>
-                  <input
-                    id="new-duration-hours"
-                    type="number"
-                    inputMode="numeric"
-                    min="0"
-                    max="23"
-                    step="1"
-                    value={createDuration.hours}
-                    onChange={(event) =>
-                      handleCreateDurationInput('hours', event.target.value)
-                    }
-                    placeholder="0"
-                  />
-                </label>
-
-                <label className="field" htmlFor="new-duration-minutes">
-                  <span>Minutes</span>
-                  <input
-                    id="new-duration-minutes"
-                    type="number"
-                    inputMode="numeric"
-                    min="0"
-                    max="59"
-                    step="1"
-                    value={createDuration.minutes}
-                    onChange={(event) =>
-                      handleCreateDurationInput('minutes', event.target.value)
-                    }
-                    placeholder="0"
-                  />
-                </label>
-
-                <label className="field" htmlFor="new-duration-seconds">
-                  <span>Seconds</span>
-                  <input
-                    id="new-duration-seconds"
-                    type="number"
-                    inputMode="numeric"
-                    min="0"
-                    max="59"
-                    step="1"
-                    value={createDuration.seconds}
-                    onChange={(event) =>
-                      handleCreateDurationInput('seconds', event.target.value)
-                    }
-                    placeholder="0"
-                  />
-                </label>
-              </div>
-
-              <p className="duration-preview-line">
-                Ends at: {createDurationEndsAt ? formatDateTime(createDurationEndsAt) : '—'}
-              </p>
-              <p className="duration-preview-sub">
-                In: {createDurationMs > 0 ? formatDurationPreview(createDurationMs) : '—'}
-              </p>
-              {createDurationMs <= 0 ? (
-                <p className="inline-error create-form-error">
-                  Duration must be greater than 0.
-                </p>
-              ) : null}
-            </div>
-          )}
-
-          <button className="primary-button" type="submit" disabled={isCreateDisabled}>
-            Create Timer
+        <header className="app-header">
+          <h1 className="title">Time Until</h1>
+          <button
+            type="button"
+            className="icon-button header-icon-button"
+            onClick={() => setIsSettingsOpen(true)}
+            aria-label="Notification settings"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M12 8.5a3.5 3.5 0 100 7 3.5 3.5 0 000-7z"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              />
+              <path
+                d="M19.4 15a1.7 1.7 0 00.34 1.86l.02.02a2 2 0 11-2.83 2.83l-.02-.02A1.7 1.7 0 0015 19.4a1.7 1.7 0 00-1 .6 1.7 1.7 0 01-2 0 1.7 1.7 0 00-1-.6 1.7 1.7 0 00-1.86.34l-.02.02a2 2 0 11-2.83-2.83l.02-.02A1.7 1.7 0 004.6 15a1.7 1.7 0 00-.6-1 1.7 1.7 0 010-2 1.7 1.7 0 00.6-1 1.7 1.7 0 00-.34-1.86l-.02-.02a2 2 0 112.83-2.83l.02.02A1.7 1.7 0 009 4.6a1.7 1.7 0 001-.6 1.7 1.7 0 012 0 1.7 1.7 0 001 .6 1.7 1.7 0 001.86-.34l.02-.02a2 2 0 112.83 2.83l-.02.02A1.7 1.7 0 0019.4 9c.24.3.45.64.6 1a1.7 1.7 0 011 1 1.7 1.7 0 010 2 1.7 1.7 0 01-1 1c-.15.36-.36.7-.6 1z"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
           </button>
-        </form>
-
-        <section className="settings-card">
-          <h2>Settings</h2>
-          <label className="settings-toggle">
-            <input
-              type="checkbox"
-              checked={notificationsEnabled}
-              onChange={(event) => setNotificationsEnabled(event.target.checked)}
-            />
-            <span>Enable notifications</span>
-          </label>
-          <div className="settings-actions">
-            <button
-              type="button"
-              onClick={() => {
-                void handleRequestNotificationPermission()
-              }}
-              disabled={notificationPermission === 'unsupported'}
-            >
-              Request notification permission
-            </button>
-            <p>
-              Permission:{' '}
-              <strong>
-                {notificationPermission === 'unsupported' ? 'unsupported' : notificationPermission}
-              </strong>
-            </p>
-          </div>
-          <p className="settings-disclaimer">
-            On iPhone PWAs, background notifications and sounds are not guaranteed. Keep the app
-            open for reliable alerts.
-          </p>
-        </section>
+        </header>
 
         <section className="timers-group" aria-live="polite">
           <div className="list-header">
@@ -1527,7 +1594,7 @@ function App() {
           </div>
           <div className="timers-list">
           {timers.length === 0 ? (
-            <p className="empty-state">No timers yet. Create one above.</p>
+            <p className="empty-state">No timers yet. Tap + to create one.</p>
           ) : (
             timers.map((timer) => {
               const isTargetEditing = Boolean(editingById[timer.id])
@@ -1902,6 +1969,92 @@ function App() {
           )}
         </section>
       </main>
+
+      <button
+        type="button"
+        className="fab-create"
+        onClick={() => setIsCreateOpen(true)}
+        aria-label="Create timer"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M12 5v14M5 12h14"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+
+      {isCreateOpen ? (
+        <div className="modal-overlay" role="presentation" onClick={() => setIsCreateOpen(false)}>
+          <div
+            className="modal-card modal-card-wide"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-timer-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-header">
+              <h2 id="create-timer-title">Create Timer</h2>
+              <button
+                type="button"
+                className="icon-button modal-close-button"
+                onClick={() => setIsCreateOpen(false)}
+                aria-label="Close create timer"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M18 6L6 18M6 6l12 12"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            </div>
+            {createTimerPanel}
+          </div>
+        </div>
+      ) : null}
+
+      {isSettingsOpen ? (
+        <div className="modal-overlay" role="presentation" onClick={() => setIsSettingsOpen(false)}>
+          <div
+            className="modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="notification-settings-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-header">
+              <h2 id="notification-settings-title">Notification Settings</h2>
+              <button
+                type="button"
+                className="icon-button modal-close-button"
+                onClick={() => setIsSettingsOpen(false)}
+                aria-label="Close notification settings"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M18 6L6 18M6 6l12 12"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            </div>
+            {notificationSettingsPanel}
+          </div>
+        </div>
+      ) : null}
 
       {isClearCompletedModalOpen ? (
         <div
