@@ -263,6 +263,10 @@ body {
   height: 1.1rem;
 }
 
+.settings-toggle-secondary {
+  margin-top: 0.65rem;
+}
+
 .settings-actions {
   margin-top: 0.6rem;
   display: grid;
@@ -725,6 +729,82 @@ body {
   background: #8d1f3d;
 }
 
+.tutorial-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+
+.tutorial-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(11, 20, 37, 0.66);
+}
+
+.tutorial-spotlight {
+  position: fixed;
+  border-radius: 12px;
+  border: 2px solid #74a0ff;
+  box-shadow: 0 0 0 9999px rgba(11, 20, 37, 0.66);
+  pointer-events: none;
+}
+
+.tutorial-card {
+  position: fixed;
+  background: #fff;
+  border: 1px solid #cad8f0;
+  border-radius: 14px;
+  padding: 0.9rem;
+  box-shadow: 0 16px 30px rgba(11, 20, 37, 0.28);
+}
+
+.tutorial-card-positioned {
+  width: min(92vw, 340px);
+}
+
+.tutorial-card-centered {
+  left: 50%;
+  top: 50%;
+  width: min(92vw, 360px);
+  transform: translate(-50%, -50%);
+}
+
+.tutorial-progress {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #35518e;
+}
+
+.tutorial-card h2 {
+  margin: 0.4rem 0 0;
+  font-size: 1.05rem;
+  color: #1c2d4d;
+}
+
+.tutorial-card > p:not(.tutorial-progress) {
+  margin: 0.5rem 0 0;
+  color: #415273;
+  font-size: 0.9rem;
+  line-height: 1.42;
+}
+
+.tutorial-open-target {
+  margin-top: 0.65rem;
+}
+
+.tutorial-actions {
+  margin-top: 0.85rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.tutorial-step-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
 .toast-stack {
   position: fixed;
   left: 0;
@@ -776,6 +856,7 @@ body {
 .settings-actions button:focus-visible,
 .icon-button:focus-visible,
 .fab-create:focus-visible,
+.tutorial-actions button:focus-visible,
 .toast button:focus-visible {
   outline: 2px solid rgba(47, 111, 237, 0.35);
   outline-offset: 1px;
@@ -820,6 +901,11 @@ body {
   .fab-create {
     right: 0.85rem;
     bottom: max(0.85rem, env(safe-area-inset-bottom, 0px));
+  }
+
+  .tutorial-card-positioned,
+  .tutorial-card-centered {
+    width: min(94vw, 360px);
   }
 
   .field input[type='date'],
