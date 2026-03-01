@@ -647,6 +647,12 @@ body {
   gap: 0.5rem;
 }
 
+.completed-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
 .completed-header h3 {
   margin: 0;
   font-size: 1rem;

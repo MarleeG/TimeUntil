@@ -36,6 +36,7 @@ type Timer = {
   label?: string
   targetAt: number
   createdAt: number
+  initialDurationMs?: number
   startedAt?: number
   endedAt?: number
   isRunning: boolean
@@ -370,6 +371,10 @@ function getAlertValidationError(timer: Timer, minutesBeforeEnd: number, nowMs: 
 }
 
 function normalizeRestoredTimer(timer: Timer): Timer {
+  const initialDurationMs =
+    typeof timer.initialDurationMs === 'number' && Number.isFinite(timer.initialDurationMs)
+      ? Math.max(0, timer.initialDurationMs)
+      : undefined
   const normalizedAlerts = sortAlertsDescending(
     timer.alerts
       .filter((alert) => Number.isFinite(alert.minutesBeforeEnd) && alert.minutesBeforeEnd > 0)
@@ -379,6 +384,7 @@ function normalizeRestoredTimer(timer: Timer): Timer {
   if (timer.isRunning) {
     return {
       ...timer,
+      initialDurationMs,
       pausedRemainingMs: undefined,
       alerts: normalizedAlerts,
     }
@@ -387,6 +393,7 @@ function normalizeRestoredTimer(timer: Timer): Timer {
   if (typeof timer.pausedRemainingMs === 'number') {
     return {
       ...timer,
+      initialDurationMs,
       pausedRemainingMs: Math.max(0, timer.pausedRemainingMs),
       alerts: normalizedAlerts,
     }
@@ -394,6 +401,7 @@ function normalizeRestoredTimer(timer: Timer): Timer {
 
   return {
     ...timer,
+    initialDurationMs,
     alerts: normalizedAlerts,
   }
 }
@@ -457,6 +465,11 @@ function readPersistedTimers(): Timer[] {
         label: typeof candidate.label === 'string' ? candidate.label : undefined,
         targetAt: candidate.targetAt,
         createdAt: candidate.createdAt,
+        initialDurationMs:
+          typeof candidate.initialDurationMs === 'number' &&
+          Number.isFinite(candidate.initialDurationMs)
+            ? Math.max(0, candidate.initialDurationMs)
+            : undefined,
         startedAt:
           typeof candidate.startedAt === 'number' && Number.isFinite(candidate.startedAt)
             ? candidate.startedAt
@@ -1170,6 +1183,7 @@ function App() {
       label: label || undefined,
       targetAt,
       createdAt: nowMs,
+      initialDurationMs: Math.max(0, targetAt - nowMs),
       startedAt: nowMs,
       endedAt: undefined,
       isRunning: true,
@@ -1403,6 +1417,7 @@ function App() {
           startedAt: undefined,
           endedAt: undefined,
           targetAt: target.getTime(),
+          initialDurationMs: totalDurationMs,
           isRunning: false,
           pausedRemainingMs: totalDurationMs,
           alerts: resetAlertsForNewDuration(timer.alerts, totalDurationMs),
@@ -1571,6 +1586,47 @@ function App() {
 
   const handleDeleteCompletedTimer = (completedTimerId: string) => {
     setCompletedTimers((previous) => previous.filter((timer) => timer.id !== completedTimerId))
+  }
+
+  const handleCopyCompletedTimer = (completedTimerId: string) => {
+    const sourceTimer = completedTimers.find((timer) => timer.id === completedTimerId)
+    if (!sourceTimer) {
+      return
+    }
+
+    markUserInteracted()
+    const nowMs = Date.now()
+    const durationMs =
+      sourceTimer.durationMs ??
+      Math.max(
+        0,
+        sourceTimer.endedAt -
+          (typeof sourceTimer.startedAt === 'number' ? sourceTimer.startedAt : sourceTimer.createdAt),
+      )
+
+    if (durationMs <= 0) {
+      pushToast('Unable to copy timer with zero duration.')
+      return
+    }
+
+    const copiedTimer: Timer = {
+      id: createId(),
+      label: sourceTimer.label,
+      targetAt: nowMs + durationMs,
+      createdAt: nowMs,
+      initialDurationMs: durationMs,
+      startedAt: nowMs,
+      endedAt: undefined,
+      isRunning: true,
+      pausedRemainingMs: undefined,
+      alerts: [],
+      alertSoundId: 'ding',
+      endSoundId: 'short-bell',
+    }
+
+    setNow((previousNow) => (nowMs === previousNow ? previousNow + 1 : nowMs))
+    setTimers((previous) => [copiedTimer, ...previous])
+    pushToast(`Copied completed timer: ${sourceTimer.label || 'Untitled'}`)
   }
 
   const handleOpenClearCompletedModal = () => {
@@ -2168,23 +2224,42 @@ function App() {
                   <article className="completed-card" key={timer.id}>
                     <header className="completed-header">
                       <h3>{timer.label || 'Untitled'}</h3>
-                      <button
-                        type="button"
-                        className="icon-button danger-icon-button"
-                        onClick={() => handleDeleteCompletedTimer(timer.id)}
-                        aria-label="Delete completed timer"
-                      >
-                        <svg viewBox="0 0 24 24" aria-hidden="true">
-                          <path
-                            d="M4 7h16M10 11v6M14 11v6M6 7l1 12h10l1-12M9 7V5h6v2"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      </button>
+                      <div className="completed-header-actions">
+                        <button
+                          type="button"
+                          className="icon-button"
+                          onClick={() => handleCopyCompletedTimer(timer.id)}
+                          aria-label="Copy completed timer"
+                        >
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path
+                              d="M9 9h10v10H9zM5 5h10v2H7v8H5z"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-button danger-icon-button"
+                          onClick={() => handleDeleteCompletedTimer(timer.id)}
+                          aria-label="Delete completed timer"
+                        >
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path
+                              d="M4 7h16M10 11v6M14 11v6M6 7l1 12h10l1-12M9 7V5h6v2"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </button>
+                      </div>
                     </header>
                     <p>Target: {formatDateTime(timer.targetAt)}</p>
                     <p>Started: {typeof timer.startedAt === 'number' ? formatDateTime(timer.startedAt) : '—'}</p>
