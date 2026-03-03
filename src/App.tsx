@@ -25,9 +25,12 @@ const SOUND_OPTIONS = [
 
 type SoundId = (typeof SOUND_OPTIONS)[number]['id']
 
+type AlertType = 'minutesBeforeEnd' | 'percentElapsed'
+
 type AlertRule = {
   id: string
-  minutesBeforeEnd: number
+  type: AlertType
+  value: number
   hasFired: boolean
 }
 
@@ -272,16 +275,68 @@ function formatDurationPreview(ms: number): string {
   return `${days} day${days === 1 ? '' : 's'}, ${formatHMS(dayRemainderMs)}`
 }
 
-function formatMinutesValue(minutes: number): string {
-  if (Number.isInteger(minutes)) {
-    return String(minutes)
+function formatAlertValue(value: number): string {
+  if (Number.isInteger(value)) {
+    return String(value)
   }
 
-  return minutes.toFixed(2).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1')
+  return value.toFixed(2).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1')
 }
 
-function sortAlertsDescending(alerts: AlertRule[]): AlertRule[] {
-  return [...alerts].sort((a, b) => b.minutesBeforeEnd - a.minutesBeforeEnd)
+function isAlertType(value: unknown): value is AlertType {
+  return value === 'minutesBeforeEnd' || value === 'percentElapsed'
+}
+
+function getAlertTriggerRemainingMs(alert: AlertRule, totalDurationMs: number): number {
+  if (alert.type === 'minutesBeforeEnd') {
+    return alert.value * 60_000
+  }
+
+  return totalDurationMs * (1 - alert.value / 100)
+}
+
+function formatAlertDescription(alert: AlertRule): string {
+  if (alert.type === 'minutesBeforeEnd') {
+    return `${formatAlertValue(alert.value)}m before`
+  }
+
+  return `${formatAlertValue(alert.value)}% elapsed`
+}
+
+function formatAlertTriggeredText(alert: AlertRule): string {
+  if (alert.type === 'minutesBeforeEnd') {
+    return `${formatAlertValue(alert.value)} minutes left`
+  }
+
+  return `${formatAlertValue(alert.value)}% elapsed`
+}
+
+function formatAlertFireAt(timestamp: number, nowMs: number): string {
+  const fireAt = new Date(timestamp)
+  const now = new Date(nowMs)
+  const isSameDay =
+    fireAt.getFullYear() === now.getFullYear() &&
+    fireAt.getMonth() === now.getMonth() &&
+    fireAt.getDate() === now.getDate()
+
+  return new Intl.DateTimeFormat(undefined, {
+    ...(isSameDay
+      ? {}
+      : {
+          month: 'short',
+          day: 'numeric',
+        }),
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(fireAt)
+}
+
+function sortAlertsDescending(alerts: AlertRule[], totalDurationMs: number): AlertRule[] {
+  return [...alerts].sort((a, b) => {
+    const aTriggerRemainingMs = getAlertTriggerRemainingMs(a, totalDurationMs)
+    const bTriggerRemainingMs = getAlertTriggerRemainingMs(b, totalDurationMs)
+    return bTriggerRemainingMs - aTriggerRemainingMs
+  })
 }
 
 function getRemainingMs(timer: Timer, nowMs: number): number {
@@ -294,6 +349,31 @@ function getRemainingMs(timer: Timer, nowMs: number): number {
   }
 
   return Math.max(0, timer.targetAt - nowMs)
+}
+
+function getTimerTotalDurationMs(timer: Timer, nowMs: number): number {
+  if (typeof timer.initialDurationMs === 'number' && Number.isFinite(timer.initialDurationMs)) {
+    return Math.max(0, timer.initialDurationMs)
+  }
+
+  const remainingMs = getRemainingMs(timer, nowMs)
+  if (remainingMs > 0) {
+    return remainingMs
+  }
+
+  return Math.max(0, timer.targetAt - timer.createdAt)
+}
+
+function isAlertValidForDuration(alert: AlertRule, totalDurationMs: number): boolean {
+  if (!Number.isFinite(alert.value) || alert.value <= 0) {
+    return false
+  }
+
+  if (alert.type === 'minutesBeforeEnd') {
+    return alert.value * 60_000 < totalDurationMs
+  }
+
+  return alert.value < 100 && totalDurationMs > 0
 }
 
 function toCompletedTimer(timer: Timer, endedAt: number): CompletedTimer {
@@ -341,17 +421,25 @@ function toDraft(timer: Timer): TimerDraft {
 function resetAlertsForNewDuration(alerts: AlertRule[], totalDurationMs: number): AlertRule[] {
   return sortAlertsDescending(
     alerts
-      .filter((alert) => alert.minutesBeforeEnd > 0 && alert.minutesBeforeEnd * 60_000 < totalDurationMs)
+      .filter((alert) => isAlertValidForDuration(alert, totalDurationMs))
       .map((alert) => ({
         ...alert,
         hasFired: false,
       })),
+    totalDurationMs,
   )
 }
 
-function getAlertValidationError(timer: Timer, minutesBeforeEnd: number, nowMs: number): string | null {
-  if (!Number.isFinite(minutesBeforeEnd) || minutesBeforeEnd <= 0) {
-    return 'Alert must be greater than 0 minutes.'
+function getAlertValidationError(
+  timer: Timer,
+  alertType: AlertType,
+  alertValue: number,
+  nowMs: number,
+): string | null {
+  if (!Number.isFinite(alertValue) || alertValue <= 0) {
+    return alertType === 'percentElapsed'
+      ? 'Alert must be greater than 0%.'
+      : 'Alert must be greater than 0 minutes.'
   }
 
   if (timer.alerts.length >= MAX_ALERTS_PER_TIMER) {
@@ -363,8 +451,28 @@ function getAlertValidationError(timer: Timer, minutesBeforeEnd: number, nowMs: 
     return 'Timer has already ended.'
   }
 
-  if (minutesBeforeEnd * 60_000 >= remainingMs) {
-    return 'Alert must be less than the timer duration.'
+  const totalDurationMs = getTimerTotalDurationMs(timer, nowMs)
+  if (totalDurationMs <= 0) {
+    return 'Timer has already ended.'
+  }
+
+  const candidateAlert: AlertRule = {
+    id: 'candidate',
+    type: alertType,
+    value: alertValue,
+    hasFired: false,
+  }
+
+  if (!isAlertValidForDuration(candidateAlert, totalDurationMs)) {
+    return alertType === 'percentElapsed'
+      ? 'Percent alert must be less than 100%.'
+      : 'Alert must be less than the timer duration.'
+  }
+
+  if (getAlertTriggerRemainingMs(candidateAlert, totalDurationMs) >= remainingMs) {
+    return alertType === 'percentElapsed'
+      ? 'Percent alert point has already passed.'
+      : 'Alert must be less than the remaining time.'
   }
 
   return null
@@ -375,10 +483,17 @@ function normalizeRestoredTimer(timer: Timer): Timer {
     typeof timer.initialDurationMs === 'number' && Number.isFinite(timer.initialDurationMs)
       ? Math.max(0, timer.initialDurationMs)
       : undefined
+  const totalDurationMs =
+    typeof initialDurationMs === 'number'
+      ? initialDurationMs
+      : getTimerTotalDurationMs(timer, Date.now())
   const normalizedAlerts = sortAlertsDescending(
     timer.alerts
-      .filter((alert) => Number.isFinite(alert.minutesBeforeEnd) && alert.minutesBeforeEnd > 0)
+      .filter(
+        (alert) => isAlertType(alert.type) && isAlertValidForDuration(alert, totalDurationMs),
+      )
       .slice(0, MAX_ALERTS_PER_TIMER),
+    totalDurationMs,
   )
 
   if (timer.isRunning) {
@@ -443,21 +558,43 @@ function readPersistedTimers(): Timer[] {
           continue
         }
 
-        const candidateAlert = alertItem as Partial<AlertRule>
-        if (
-          typeof candidateAlert.id !== 'string' ||
-          typeof candidateAlert.minutesBeforeEnd !== 'number' ||
-          !Number.isFinite(candidateAlert.minutesBeforeEnd) ||
-          typeof candidateAlert.hasFired !== 'boolean'
-        ) {
+        const candidateAlert = alertItem as {
+          id?: unknown
+          type?: unknown
+          value?: unknown
+          minutesBeforeEnd?: unknown
+          hasFired?: unknown
+        }
+        if (typeof candidateAlert.id !== 'string' || typeof candidateAlert.hasFired !== 'boolean') {
           continue
         }
 
-        alerts.push({
-          id: candidateAlert.id,
-          minutesBeforeEnd: candidateAlert.minutesBeforeEnd,
-          hasFired: candidateAlert.hasFired,
-        })
+        // Backward compatibility for alerts saved before alert type support.
+        if (
+          typeof candidateAlert.minutesBeforeEnd === 'number' &&
+          Number.isFinite(candidateAlert.minutesBeforeEnd)
+        ) {
+          alerts.push({
+            id: candidateAlert.id,
+            type: 'minutesBeforeEnd',
+            value: candidateAlert.minutesBeforeEnd,
+            hasFired: candidateAlert.hasFired,
+          })
+          continue
+        }
+
+        if (
+          isAlertType(candidateAlert.type) &&
+          typeof candidateAlert.value === 'number' &&
+          Number.isFinite(candidateAlert.value)
+        ) {
+          alerts.push({
+            id: candidateAlert.id,
+            type: candidateAlert.type,
+            value: candidateAlert.value,
+            hasFired: candidateAlert.hasFired,
+          })
+        }
       }
 
       const timer: Timer = {
@@ -678,6 +815,7 @@ function App() {
   const [tutorialAlwaysShow, setTutorialAlwaysShow] = useState(tutorialAlwaysShowInitial)
   const [isClearCompletedModalOpen, setIsClearCompletedModalOpen] = useState(false)
   const [alertInputById, setAlertInputById] = useState<Record<string, string>>({})
+  const [alertTypeById, setAlertTypeById] = useState<Record<string, AlertType>>({})
   const [alertErrorById, setAlertErrorById] = useState<Record<string, string>>({})
   const [toasts, setToasts] = useState<ToastMessage[]>([])
   const [now, setNow] = useState<number>(() => Date.now())
@@ -921,18 +1059,20 @@ function App() {
       if (remainingMs <= 0) {
         return timer
       }
+      const totalDurationMs = getTimerTotalDurationMs(timer, now)
 
       let nextTimer = timer
 
       let alertsChanged = false
       const nextAlerts = timer.alerts.map((alert) => {
-        if (!alert.hasFired && remainingMs <= alert.minutesBeforeEnd * 60_000) {
+        if (!alert.hasFired && remainingMs <= getAlertTriggerRemainingMs(alert, totalDurationMs)) {
           alertsChanged = true
+          const alertText = formatAlertTriggeredText(alert)
           alertMessages.push(
-            `Alert: ${formatMinutesValue(alert.minutesBeforeEnd)} minutes left (${timer.label || 'Untitled'})`,
+            `Alert: ${alertText} (${timer.label || 'Untitled'})`,
           )
           alertNotifications.push(
-            `${formatMinutesValue(alert.minutesBeforeEnd)} minutes left (${timer.label || 'Untitled'})`,
+            `${alertText} (${timer.label || 'Untitled'})`,
           )
           alertSounds.push(timer.alertSoundId)
 
@@ -1318,6 +1458,16 @@ function App() {
       return next
     })
 
+    setAlertTypeById((previous) => {
+      if (!(timerId in previous)) {
+        return previous
+      }
+
+      const next = { ...previous }
+      delete next[timerId]
+      return next
+    })
+
     clearAlertError(timerId)
 
     if (editingTimerId === timerId) {
@@ -1434,13 +1584,13 @@ function App() {
     clearAlertError(timerId)
   }
 
-  const handleAddAlert = (timerId: string, minutesBeforeEnd: number) => {
+  const handleAddAlert = (timerId: string, alertType: AlertType, alertValue: number) => {
     const timer = timers.find((item) => item.id === timerId)
     if (!timer) {
       return
     }
 
-    const error = getAlertValidationError(timer, minutesBeforeEnd, now)
+    const error = getAlertValidationError(timer, alertType, alertValue, now)
     if (error) {
       setAlertErrorById((previous) => ({
         ...previous,
@@ -1451,7 +1601,8 @@ function App() {
 
     const nextAlert: AlertRule = {
       id: createId(),
-      minutesBeforeEnd,
+      type: alertType,
+      value: alertValue,
       hasFired: false,
     }
 
@@ -1460,7 +1611,10 @@ function App() {
         item.id === timerId
           ? {
               ...item,
-              alerts: sortAlertsDescending([...item.alerts, nextAlert]),
+              alerts: sortAlertsDescending(
+                [...item.alerts, nextAlert],
+                getTimerTotalDurationMs(item, now),
+              ),
             }
           : item,
       ),
@@ -1493,8 +1647,9 @@ function App() {
 
   const handleCustomAlertAdd = (timerId: string) => {
     const inputValue = alertInputById[timerId] ?? ''
-    const parsedMinutes = Number.parseFloat(inputValue)
-    handleAddAlert(timerId, parsedMinutes)
+    const parsedValue = Number.parseFloat(inputValue)
+    const alertType = alertTypeById[timerId] ?? 'minutesBeforeEnd'
+    handleAddAlert(timerId, alertType, parsedValue)
   }
 
   const handleTimerSoundChange = (timerId: string, field: 'alertSoundId' | 'endSoundId', value: SoundId) => {
@@ -1883,7 +2038,9 @@ function App() {
               const isTimerSettingsOpen = settingsOpenById[timer.id] === true
               const draft = editingById[timer.id]
               const remainingMs = isTargetEditing ? 0 : getRemainingMs(timer, now)
+              const timerTotalDurationMs = getTimerTotalDurationMs(timer, now)
               const alertInput = alertInputById[timer.id] ?? ''
+              const alertType = alertTypeById[timer.id] ?? 'minutesBeforeEnd'
               const alertError = alertErrorById[timer.id]
 
               return (
@@ -2057,17 +2214,36 @@ function App() {
                       <section className="alerts-section">
                         <h3>Alerts</h3>
 
-                        <div className="preset-row">
-                          {[1, 5, 10, 15].map((preset) => (
-                            <button
-                              key={preset}
-                              type="button"
-                              onClick={() => handleAddAlert(timer.id, preset)}
-                              disabled={isTargetEditing}
-                            >
-                              {preset}m
-                            </button>
-                          ))}
+                        <div className="preset-group">
+                          <p className="preset-label">Minutes before end</p>
+                          <div className="preset-row">
+                            {[1, 5, 10, 15].map((preset) => (
+                              <button
+                                key={preset}
+                                type="button"
+                                onClick={() => handleAddAlert(timer.id, 'minutesBeforeEnd', preset)}
+                                disabled={isTargetEditing}
+                              >
+                                {preset}m
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="preset-group">
+                          <p className="preset-label">Percent elapsed</p>
+                          <div className="preset-row">
+                            {[25, 50, 75, 90].map((preset) => (
+                              <button
+                                key={preset}
+                                type="button"
+                                onClick={() => handleAddAlert(timer.id, 'percentElapsed', preset)}
+                                disabled={isTargetEditing}
+                              >
+                                {preset}%
+                              </button>
+                            ))}
+                          </div>
                         </div>
 
                         <div className="custom-alert-row">
@@ -2075,7 +2251,9 @@ function App() {
                             type="number"
                             min="0"
                             step="0.1"
-                            placeholder="Custom minutes"
+                            placeholder={
+                              alertType === 'percentElapsed' ? 'Custom % elapsed' : 'Custom minutes'
+                            }
                             value={alertInput}
                             onChange={(event) =>
                               setAlertInputById((previous) => ({
@@ -2085,6 +2263,20 @@ function App() {
                             }
                             disabled={isTargetEditing}
                           />
+                          <select
+                            aria-label="Alert type"
+                            value={alertType}
+                            onChange={(event) =>
+                              setAlertTypeById((previous) => ({
+                                ...previous,
+                                [timer.id]: event.target.value as AlertType,
+                              }))
+                            }
+                            disabled={isTargetEditing}
+                          >
+                            <option value="minutesBeforeEnd">Minutes before end</option>
+                            <option value="percentElapsed">% elapsed</option>
+                          </select>
                           <button
                             type="button"
                             onClick={() => handleCustomAlertAdd(timer.id)}
@@ -2102,7 +2294,16 @@ function App() {
                           <ul className="alerts-list">
                             {timer.alerts.map((alert) => (
                               <li key={alert.id}>
-                                <span>{formatMinutesValue(alert.minutesBeforeEnd)}m before</span>
+                                <div className="alert-list-main">
+                                  <span>{formatAlertDescription(alert)}</span>
+                                  <span className="alert-fire-at">
+                                    Goes off at{' '}
+                                    {formatAlertFireAt(
+                                      timer.targetAt - getAlertTriggerRemainingMs(alert, timerTotalDurationMs),
+                                      now,
+                                    )}
+                                  </span>
+                                </div>
                                 <button type="button" onClick={() => handleRemoveAlert(timer.id, alert.id)}>
                                   Remove
                                 </button>
