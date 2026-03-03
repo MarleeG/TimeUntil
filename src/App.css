@@ -481,7 +481,17 @@ body {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.45rem;
-  margin-bottom: 0.55rem;
+}
+
+.preset-group + .preset-group {
+  margin-top: 0.6rem;
+}
+
+.preset-label {
+  margin: 0 0 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #4f5d79;
 }
 
 .preset-row button,
@@ -494,8 +504,9 @@ body {
 
 .custom-alert-row {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
   gap: 0.45rem;
+  margin-top: 0.55rem;
 }
 
 .custom-alert-row input {
@@ -505,6 +516,17 @@ body {
   padding: 0.4rem 0.6rem;
   font-family: inherit;
   font-size: 0.92rem;
+}
+
+.custom-alert-row select {
+  min-height: 2.2rem;
+  border: 1px solid #c5d2e6;
+  border-radius: 10px;
+  padding: 0.4rem 0.55rem;
+  font-family: inherit;
+  font-size: 0.86rem;
+  color: #1f2f4a;
+  background: #fff;
 }
 
 .inline-error {
@@ -534,6 +556,16 @@ body {
   gap: 0.5rem;
   font-size: 0.86rem;
   color: #30415f;
+}
+
+.alert-list-main {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.alert-fire-at {
+  font-size: 0.76rem;
+  color: #60708e;
 }
 
 .alerts-list li button {
@@ -857,6 +889,7 @@ body {
 .secondary-button:focus-visible,
 .mode-button:focus-visible,
 .alerts-section button:focus-visible,
+.custom-alert-row select:focus-visible,
 .sound-controls select:focus-visible,
 .sound-controls button:focus-visible,
 .settings-actions button:focus-visible,
@@ -923,5 +956,13 @@ body {
     -webkit-appearance: none;
     appearance: none;
     font-size: 16px;
+  }
+
+  .custom-alert-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .custom-alert-row button {
+    grid-column: 1 / -1;
   }
 }
